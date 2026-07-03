@@ -3,7 +3,8 @@
 用法: python src/build_gp5.py work/json/week09 -o output/week09.gp5 --title "Week09 Picking"
 JSON 按文件名排序（01_daily.json, 02_monday.json, ...）依次拼接。
 
-注意：GP5 格式使用 cp1252 编码，marker 标题仅支持 ASCII 字符。
+注意：GP5 字符串按系统码页解码；本项目面向中文 Windows，统一用 cp936（GBK）
+写入，中文 marker/标题可正常显示。读回时同样需要 encoding="cp936"。
 """
 import argparse
 import pathlib
@@ -12,6 +13,7 @@ import guitarpro as gp
 
 from phrase_schema import load_phrase
 
+GP5_ENCODING = "cp936"
 PICK_MAP = {"down": gp.BeatStrokeDirection.down, "up": gp.BeatStrokeDirection.up}
 
 
@@ -38,7 +40,7 @@ def build_week(json_dir: str, out_path: str, title: str) -> gp.Song:
         start += len(phrase["measures"])
 
     pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    gp.write(song, out_path)
+    gp.write(song, out_path, encoding=GP5_ENCODING)
     return song
 
 

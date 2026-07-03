@@ -6,6 +6,7 @@ import argparse
 
 import guitarpro as gp
 
+GP5_ENCODING = "cp936"  # 与 build_gp5 一致，支持中文 marker
 PICK_ABBR = {gp.BeatStrokeDirection.down: "v", gp.BeatStrokeDirection.up: "^"}
 
 
@@ -61,7 +62,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("gp5")
     args = ap.parse_args()
-    print(ascii_tab(gp.parse(args.gp5)))
+    print(ascii_tab(gp.parse(args.gp5, encoding=GP5_ENCODING)))
 
 
 if __name__ == "__main__":
