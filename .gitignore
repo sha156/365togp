@@ -1,0 +1,11 @@
+# 源书 PDF（版权物，不入库）
+*.pdf
+
+# 中间产物大图与输出
+work/
+output/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
