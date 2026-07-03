@@ -11,8 +11,9 @@ import numpy as np
 # 针对 300dpi 扫描页的经验参数（自适应阈值 + 宽间距聚类）
 MIN_LINE_WIDTH_RATIO = 0.10  # 谱线横贯页宽比例（自适应阈值下可更宽容）
 LINE_GAP = 4                  # 行聚类间隔（px）
-SYSTEM_GAP = 180              # 系统聚类间隔（px）
+SYSTEM_GAP = 240              # 系统聚类间隔：块内中心距<=207px，块间>=290px
 MIN_LINES_PER_SYSTEM = 7      # 一个系统至少 7 个行簇（5+6=11 容忍漏检）
+MAX_X_START_RATIO = 0.30      # 谱线/标题条均起于左缘；右侧表格线据此剔除
 PAD_TOP = 130                 # 上边留白：和弦名、连音弧线
 PAD_BOTTOM = 40
 
@@ -31,6 +32,13 @@ def _cluster(sorted_vals: np.ndarray, max_gap: int) -> list[tuple[int, int]]:
     return out
 
 
+def _x_start(long_lines: np.ndarray, line: tuple[int, int]) -> int:
+    """行簇内长线像素的最左列。"""
+    a, b = line
+    cols = np.where(long_lines[a:b + 1].any(axis=0))[0]
+    return int(cols[0]) if len(cols) else long_lines.shape[1]
+
+
 def find_systems(gray: np.ndarray) -> list[tuple[int, int]]:
     """返回每个谱表系统的 (y_top, y_bottom)。"""
     bw = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -41,7 +49,11 @@ def find_systems(gray: np.ndarray) -> list[tuple[int, int]]:
     rows = np.where(long_lines.sum(axis=1) > 0)[0]
     if len(rows) == 0:
         return []
-    lines = _cluster(rows, LINE_GAP)
+    max_x = gray.shape[1] * MAX_X_START_RATIO
+    lines = [ln for ln in _cluster(rows, LINE_GAP)
+             if _x_start(long_lines, ln) < max_x]
+    if not lines:
+        return []
     centers = np.array([(a + b) // 2 for a, b in lines])
     systems = []
     for lo_c, hi_c in _cluster(centers, SYSTEM_GAP):
