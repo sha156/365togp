@@ -17,7 +17,8 @@ GP5_ENCODING = "cp936"
 PICK_MAP = {"down": gp.BeatStrokeDirection.down, "up": gp.BeatStrokeDirection.up}
 
 
-def build_week(json_dir: str, out_path: str, title: str) -> gp.Song:
+def build_week(json_dir: str, out_path: str, title: str,
+               encoding: str = GP5_ENCODING) -> gp.Song:
     files = sorted(pathlib.Path(json_dir).glob("*.json"))
     if not files:
         raise ValueError(f"{json_dir} 下没有 JSON 文件")
@@ -38,9 +39,14 @@ def build_week(json_dir: str, out_path: str, title: str) -> gp.Song:
     for phrase in phrases:
         _write_phrase(song, track, phrase, start)
         start += len(phrase["measures"])
+        # 每条乐句结束后强制分一行（仅 GP5 原生视图生效）
+        last = start - 1
+        if last >= 0:
+            track.measures[last].lineBreak = gp.LineBreak.break_
+            song.measureHeaders[last].hasDoubleBar = True
 
     pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    gp.write(song, out_path, encoding=GP5_ENCODING)
+    gp.write(song, out_path, encoding=encoding)
     return song
 
 
@@ -97,8 +103,10 @@ def main() -> None:
     ap.add_argument("json_dir")
     ap.add_argument("-o", "--out", required=True)
     ap.add_argument("--title", required=True)
+    ap.add_argument("--encoding", default=GP5_ENCODING,
+                    help=f"写入编码（默认 {GP5_ENCODING}；TuxGuitar 用 utf-8，GP6+/alphaTab 调试用）")
     args = ap.parse_args()
-    song = build_week(args.json_dir, args.out, args.title)
+    song = build_week(args.json_dir, args.out, args.title, encoding=args.encoding)
     print(f"已写入 {args.out}: {len(song.tracks[0].measures)} 小节")
 
 
