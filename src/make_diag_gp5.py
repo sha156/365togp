@@ -53,7 +53,14 @@ def main() -> None:
         path = OUT_DIR / filename
         gp.write(make_song(title, marker_text), str(path), encoding=encoding)
         print(f"已写入 {path}  (encoding={encoding})")
-    print("\n打开 4 个文件各看一眼 marker，对照 docs 判定表即可定位解码方式。")
+        # 额外写一份 .gp 后缀的字节级拷贝：用于排查"软件按扩展名分派解析器"
+        # 而非按文件内容判断格式的情况（见 tab2gp-playbook.md「扩展名陷阱」）。
+        gp_path = path.with_suffix(".gp")
+        gp_path.write_bytes(path.read_bytes())
+        print(f"已写入 {gp_path}  (与上文件节完全相同，仅扩展名不同)")
+    print("\n打开 4 个 .gp5 文件各看一眼 marker，对照 docs 判定表即可定位解码方式。")
+    print("若连 A（纯 ASCII）都乱码，改打开对应的 .gp 文件对比 —— 若 .gp 正常，"
+          "说明是软件按扩展名分派解析器，而非编码问题，详见 playbook「扩展名陷阱」。")
 
 
 if __name__ == "__main__":
