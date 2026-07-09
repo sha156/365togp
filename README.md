@@ -1,151 +1,84 @@
-# 365togp
+# 365togp（已放弃 / 归档）
 
-**谱转 GP5 管线** — 把《365日！！电吉他手的养成计划》扫描页转换为 Guitar Pro 5 (`.gp5`) 文件。
+> **项目状态：已放弃（2026-07-09）。** 本 README 作为复盘留存：记录做成了什么、卡在哪、
+> 为什么最终判断"扫描吉他谱全自动转 GP"这条路在本书上不划算。代码可跑、5 段成品可用，
+> 但达不到"零静默错误 + 全自动"的初衷，故封存。
 
-```
-render → segment → transcribe → tabcheck → build → verify
-```
-
-项目采用**混合管线**：图像处理（render + segment）和文件构建（build + verify + tabcheck）是确定性 Python 代码；中间最关键的"识谱"步骤由人（或具备视觉能力的 LLM）完成，产出的 JSON 再送入 build 阶段。
-
-最终产物是可以直接导入 Guitar Pro / TuxGuitar 播放、变速、循环练习的 `.gp5` 文件。
+把宫胁俊郎《365日！电吉他手的养成计划》的扫描谱页，转成可导入 Guitar Pro / TuxGuitar
+播放练习的 `.gp5`。以第 9 周（拨片跨弦，7 段）为试点。
 
 ---
 
-## 管线步骤
+## 原图 vs 转谱对比
 
-### 0. 环境准备
+**成功例 —— 每日必弹（32/32 全对）**
 
-```powershell
-# Python 3.11+，推荐 venv
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
-```
+![每日必弹对比](docs/images/compare_success.png)
 
-依赖：`pymupdf`（PDF 渲染）、`opencv-python`（图像切分）、`numpy`、`PyGuitarPro`（GP5 读写）、`pytest`。
+上为原始扫描谱，下为确定性 CV（NCC 模板匹配）识读结果。绿标=高置信、红标=低分/存疑。
+这段弦位零错、品位零错、零低分——高清源 + 重建模板库后，简单段落已能全自动读准。
 
-### 1. render — PDF 页 → 300dpi PNG
+**失败例 —— 周五「超刺激的跨弦演奏」**
 
-```powershell
-.venv\Scripts\python src/render.py "365日！！电吉他手的养成计划.pdf" <页码...> -o work/pages
-```
+![周五对比](docs/images/compare_problem.png)
 
-页码 0-based。书的版式：每周跨 2 页（如第 9 周 = 页 20、21）。输出 300dpi PNG 到 `work/pages/`。
-
-### 2. segment — 整页 → 每条乐句切图
-
-```powershell
-.venv\Scripts\python src/segment.py work/pages/p020.png work/pages/p021.png -o work/phrases/week09
-```
-
-通过谱线聚类自动定位并裁出每条练习乐句（五线谱 + TAB 系统块）。输出 `system_NN.png` 与 `system_NN@2x.png`。
-
-**关键**：输出后必须目检每张切图，确保标题栏、五线谱、TAB、指法行完整。
-
-### 3. transcribe — 识谱 → 乐句 JSON（核心，人/LLM 完成）
-
-参考输出后的切图，逐小节读取音高、节奏、技巧、拨向，按以下 JSON 格式记录：
-
-```json
-{
-  "label": "每日必弹",
-  "title": "C大调音阶（Ｇ型）",
-  "tempo": 90,
-  "time_signature": [4, 4],
-  "measures": [
-    {
-      "barline": "regular",
-      "beats": [
-        {"duration": 8, "pick": "down", "notes": [{"string": 6, "fret": 0}]},
-        ...
-      ]
-    }
-  ]
-}
-```
-
-每完成一个 JSON 立即校验：
-
-```powershell
-.venv\Scripts\python src/phrase_schema.py work/json/week09/*.json
-.venv\Scripts\python src/tabcheck.py work/json/week09/*.json
-```
-
-详细识谱指南见 [`docs/tab2gp-playbook.md`](docs/tab2gp-playbook.md)。
-
-### 4. build — JSON → .gp5
-
-```powershell
-.venv\Scripts\python src/build_gp5.py work/json/week09 -o output/week09.gp5 --title "第9周 基础拨弦"
-```
-
-**新功能**：
-- **自动分段**：每条乐句末小节后强制换行，段间标双小节线，还原原书排版
-- **编码可选**：默认 `cp936`（GBK，GP5 for Windows 最佳）；遇乱码时加 `--encoding utf-8` 或按诊断结果调整
-
-编码诊断：
-
-```powershell
-.venv\Scripts\python src/make_diag_gp5.py           # 生成 4 个对照文件
-# 在实际软件中打开 output/diag/ 的 A/B/C/D，查明解码方式
-```
-
-### 5. verify — 读回校验
-
-```powershell
-$env:PYTHONIOENCODING='utf-8'
-.venv\Scripts\python src/verify.py output/week09.gp5 | Out-File -Encoding utf8 work/verify_week09.txt
-```
-
-以 ASCII TAB 形式打印 `.gp5` 内容，供逐小节对比原书切图。
-
-### 6. tabcheck — 乐理弦位校验（新增）
-
-```powershell
-# JSON 模式：直接校验识谱产出的 JSON
-.venv\Scripts\python src/tabcheck.py work/json/week09/*.json
-
-# Verify 模式：读回 .gp5 再校验
-.venv\Scripts\python src/tabcheck.py output/week09.gp5 --verify
-```
-
-针对识谱最大的错误源（TAB 数字归弦错误），用乐理做交叉验证：
-- **音域检查**：string+fret 组合是否在吉他合理音域（E2~E6）
-- **调性检查**：解析标题提取调式（如"C大调"），检测调外音
-- **大跳检查**：相邻音跳度超过 2 八度时报警
+密集 16 分 + 连奏（h.=击弦 p.=勾弦 s.=滑弦）+ 分解和弦。音高大体可读，但**弦位**（跳弦段
+读谱器会 ±1 漂移）和**节奏**（时值分组）无法可靠自动化——这类段落每个音都得人工核，
+自动化的意义就没了。
 
 ---
 
-## 项目结构
+## 做成了什么（有效成果）
+
+- **高清源迁移**：新扫描 PDF 内嵌图是真 300dpi（2544×3508），旧版仅 ~150dpi。渲染 DPI 定为
+  **470**，使页宽与旧管线一致、坐标魔数 1:1 复用，同时字形细节翻倍。这一步把简单段的识读
+  准确率直接抬上去（每日 71.9%→100%、周一 53%→96.7%、周二 68%→100%）。
+- **模板库重建**（检测器锚定挖掘 + 互相关一致性择优去噪，覆盖品位 5–17）。
+- **确定性识读 + 机械对账**（`tab_reader` + `reconcile`），坚持"零静默错误"：低置信/冲突一律
+  标红进复核清单，不臆测。
+- **成品**：`output/week09_verified.gp5`（每日~周四 5 段，可用）、`output/week09_full7.gp5`
+  （7 段，周五/周六为草稿）。28 个回归测试全绿。
+
+## 为什么放弃（撞到的墙）
+
+1. **跳弦段弦位天然歧义**。本周是"跨弦(string-skip)"技法，"跨越X弦"=跳过X弦。密集连奏里
+   数字被符杠/连音弧线干扰，印在两条弦线之间，读谱器在弦5/弦6 间 18:14 分裂，谁都对不齐。
+   （连带发现原 GT 把周四下声部误标弦5，实为弦6——**连真值本身都不可靠**。）
+2. **音频裁决失效**。想用示范音频定弦位：弦5/弦6 差纯四度、本该能分，但①失真吉他泛音铺满
+   所有音级、②连奏无独立起音没法对齐。装了 demucs 分离吉他声部、跑 basic-pitch，三种声部
+   投票仍是平局（13:13 / 14:13 / 13:12）。**音频这条退路也断了**。
+3. **密集段节奏无法可靠自动化**。16 分三连群 + 8 分 + 休止 + 分解和弦的组合，靠间距启发式
+   会造出错节奏（=假数据），只能逐小节人工读符杠。
+4. **结论**：对这本书，OMR 全自动只在简单段成立；难段（周五/周六及跳弦段的弦位）每音都需
+   人工复核，自动化省不下人力，ROI 为负。**商业方案 Soundslice** 仍是这类需求唯一对口工具。
+
+## 如果要重启，需要的不是更努力
+
+- 弦位歧义：需要**逐音人工裁定**或更高质量的原谱（非扫描件）。
+- 音频路线：换 **Moises**（moises.ai，带扒谱/变速）或 Logic Stem Splitter 或许能改善分离，
+  但失真+连奏的根本问题仍在。
+- 节奏：需要真正的符杠/时值解析器（本项目未实现），或直接人工转写难段。
+
+---
+
+## 管线与代码（供参考）
 
 ```
-365togp/
-├── src/                          # 管线代码
-│   ├── render.py                 # PDF → 300dpi PNG
-│   ├── segment.py                # PNG → 乐句切图（OpenCV 谱线聚类）
-│   ├── phrase_schema.py          # 乐句 JSON schema 定义与校验
-│   ├── build_gp5.py              # JSON → .gp5（PyGuitarPro）
-│   │     └── lineBreak 强制换行 + hasDoubleBar 双小节线
-│   │     └── --encoding 参数支持 cp936 / utf-8 / cp1252
-│   ├── tabcheck.py               # 乐理弦位校验（音域/调性/大跳）
-│   ├── verify.py                 # .gp5 → ASCII TAB 回读校验
-│   └── make_diag_gp5.py          # 编码诊断文件生成器
-├── tests/                        # pytest 单元测试（21 例）
-├── docs/
-│   ├── tab2gp-playbook.md        # 识谱操作手册（含编码诊断章节）
-│   └── superpowers/              # 设计文档与规划
-├── conftest.py                   # pytest 配置（src 路径注入）
-├── requirements.txt
-└── .gitignore
+render(470dpi) → segment → tab_reader(NCC识读) → reconcile(对账) → build_gp5 → verify
 ```
 
-## 技术要点
+| 模块 | 作用 |
+|------|------|
+| `src/render.py` | PDF 页 → PNG（`--dpi 470`） |
+| `src/segment.py` | 整页 → 每条乐句系统块切图 |
+| `src/tab_reader.py` | NCC 模板匹配识读 → (弦,品,x,置信度) |
+| `src/reconcile.py` | 识读结果 × GT JSON 机械对账，出复核清单 |
+| `src/build_gp5.py` | 乐句 JSON → `.gp5`（PyGuitarPro，cp936 编码） |
+| `src/verify.py` | `.gp5` → ASCII TAB 回读校验 |
+| `src/tabcheck.py` | 乐理弦位校验（音域/调性/大跳） |
+| `work/*.py` | 一次性脚本：模板挖掘、音频裁决、demucs 分离等（不入库） |
 
-- **GP5 编码**：Guitar Pro 5 for Windows 按系统 ANSI 码页解码字符串。默认 `cp936`（GBK）。若遇乱码，用 `make_diag_gp5.py` 诊断解码方式后调整 `--encoding`。
-- **换行分段**：GP5 格式原生支持 `lineBreak` 字节，每条乐句强制换行。仅 GP5 原生视图生效；TuxGuitar/alphaTab 忽略该字节但保留 marker 和双小节线。
-- **弦位验证**：人手识谱阶段的最大错误源是 TAB 数字归弦错误。`tabcheck.py` 用乐理做四道交叉验证中的前三道（音域/调性/跳度），第 4 道"同构检查"（周一/周二移调验证）按需补全。
-- **切图算法**：基于水平投影 + 自适应阈值检测谱线，按线间距聚类为"系统块"，并剔除页眉页脚和右侧表格线。
-- **JSON 校验**：`phrase_schema.py` 强制检查每小节时值之和 = 拍号、弦号范围 1-6、品格范围 0-24 等约束。
+复盘细节见 [`docs/accuracy-plan-v2.md`](docs/accuracy-plan-v2.md)。
 
 ## License
 

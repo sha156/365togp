@@ -152,7 +152,9 @@ def detect(gray2, profiles, gap, bank, thresh=_NCC_THRESH, x_min=300):
     for sc, y, x in cand:
         if x < x_min:
             continue
-        if any(abs(x - px) < gap and abs(y - py) < gap * 0.7
+        # 同弦重叠去重：真单音一拍一个（间距≥两位数宽），故同弦 <1.3gap 内的
+        # 低分检测必为交叉模板幻影（如"14"误配"10"的左半），抑制之。
+        if any(abs(x - px) < gap * 1.3 and abs(y - py) < gap * 0.7
                for _, py, px in picked):
             continue
         picked.append((sc, y, x))
